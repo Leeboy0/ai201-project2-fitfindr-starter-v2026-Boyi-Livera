@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -45,6 +47,65 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "fit_card": None,            # what create_fit_card returned
         "error": None,               # set when the run ended early
     }
+
+
+# ── query parsing ─────────────────────────────────────────────────────────────
+
+# "under $30", "below 30", "less than $30.50", "max $30", "$30"
+_PRICE_RE = re.compile(
+    r"(?:\b(?:under|below|max|less than|up to)\s*\$?\s*|\$\s*)(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+# "size M", "size s/m", "size US 9", "size W30"
+_SIZE_RE = re.compile(
+    r"\bsize\s+((?:us\s+)?[a-z0-9./]+)",
+    re.IGNORECASE,
+)
+_SIZE_WORDS = {"small": "S", "medium": "M", "large": "L"}
+
+
+def parse_query(query: str) -> dict:
+    """
+    Pull a description, a size and a max_price out of plain text, with regex.
+
+        "vintage graphic tee size M under $30"
+          → {"description": "vintage graphic tee", "size": "M", "max_price": 30.0}
+
+    size and max_price are None when the query doesn't mention them.
+    """
+    max_price = None
+    price_match = _PRICE_RE.search(query)
+    if price_match:
+        max_price = float(price_match.group(1))
+        query = query.replace(price_match.group(0), " ")
+
+    size = None
+    size_match = _SIZE_RE.search(query)
+    if size_match:
+        raw = size_match.group(1)
+        size = _SIZE_WORDS.get(raw.lower(), raw.upper())
+        query = query.replace(size_match.group(0), " ")
+
+    description = " ".join(query.replace(",", " ").split())
+    return {"description": description, "size": size, "max_price": max_price}
+
+
+def _no_results_message(parsed: dict) -> str:
+    """Say what the user searched for and what they could change."""
+    searched = f"\"{parsed['description']}\""
+    if parsed["size"]:
+        searched += f" in size {parsed['size']}"
+    if parsed["max_price"] is not None:
+        searched += f" under ${parsed['max_price']:g}"
+
+    changes = []
+    if parsed["max_price"] is not None:
+        changes.append("raise your max price")
+    if parsed["size"]:
+        changes.append("drop the size or try a neighbouring one")
+    changes.append("use fewer or more common keywords (e.g. \"dress\" instead of \"ballgown\")")
+
+    return f"No listings matched {searched}. Try to " + ", or ".join(changes) + "."
 
 
 # ── planning loop ─────────────────────────────────────────────────────────────
@@ -106,9 +167,52 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         than a stack trace. The import is already at the top of this file.
     """
     session = new_session(query, wardrobe)
+    trace.start_trace()
+    steps = 0
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # Step 1: parse the query.
+    steps += 1
+    trace.check_iterations(steps)
+    session["parsed"] = parse_query(session["query"])
+    trace.step("parse_query", inputs=session["query"], returned=str(session["parsed"]))
+
+    # Step 2: search.
+    steps += 1
+    trace.check_iterations(steps)
+    parsed = session["parsed"]
+    session["search_results"] = search_listings(
+        parsed["description"], parsed["size"], parsed["max_price"]
+    )
+
+    # The branch: nothing found → say what to change and stop.
+    if not session["search_results"]:
+        session["error"] = _no_results_message(session["parsed"])
+        trace.step("search_listings", inputs=str(parsed), returned=session["search_results"],
+                   note="branch: empty, stopping before suggest_outfit")
+        return session
+
+    session["selected_item"] = session["search_results"][0]
+    trace.step("search_listings", inputs=str(parsed), returned=session["search_results"],
+               note=f"branch: found, selected {session['selected_item']['id']}")
+
+    # Step 3: outfit, from what the session holds.
+    steps += 1
+    trace.check_iterations(steps)
+    item = session["selected_item"]
+    session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
+    trace.step("suggest_outfit",
+               inputs=f"new_item={item['id']}, "
+                      f"wardrobe_items={len(session['wardrobe'].get('items') or [])}",
+               returned=session["outfit_suggestion"])
+
+    # Step 4: fit card, from what the session holds.
+    steps += 1
+    trace.check_iterations(steps)
+    item = session["selected_item"]
+    session["fit_card"] = create_fit_card(session["outfit_suggestion"], item)
+    trace.step("create_fit_card", inputs=f"new_item={item['id']}",
+               returned=session["fit_card"])
+
     return session
 
 
