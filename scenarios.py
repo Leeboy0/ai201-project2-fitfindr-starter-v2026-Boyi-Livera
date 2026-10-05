@@ -35,6 +35,30 @@ SCENARIOS = [
         "wardrobe": "empty",
         "criterion": None,
     },
+    {
+        # Any normal query. Criterion 3 — the item search found is the one
+        # suggest_outfit and create_fit_card received (check ids in the trace).
+        "name": "selected item flows through session",
+        "query": "vintage graphic tee under $30",
+        "wardrobe": "example",
+        "criterion": 3,
+    },
+    {
+        # The same item five times. Criterion 4 — price as $X, platform,
+        # 2-4 sentences, and no two cards share a first sentence.
+        "name": "fit card is an acceptable caption",
+        "query": "vintage levi's 501 jeans",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        # A size and a price ceiling. Criterion 5 — every result is <= $20
+        # and has "S" as a whole size token.
+        "name": "search respects price and size",
+        "query": "graphic tee size S under $20",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
     # TODO: add what your criteria 3, 4 and 5 need.
     #
     # Set "criterion" to the number in criteria.md that the scenario tests.

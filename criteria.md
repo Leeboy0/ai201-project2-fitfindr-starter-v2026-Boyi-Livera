@@ -25,9 +25,11 @@ Given a query that matches at least one listing, the agent completes all three
 tool calls and returns a fit card — in at least 4 of 5 tries.
 
 **Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+Search doesn't use the model, so the same query finds the same listing every
+time: a phrasing my keyword match missed would fail all 5 tries, not 1. What
+can go wrong in a single try is the two model calls (`suggest_outfit` and
+`create_fit_card`), such as a rate-limit wait, a timeout, or a blank response.
+4 of 5 allows one such failure; 5 of 5 would assume the model service never fails.
 
 ---
 
@@ -37,12 +39,13 @@ Given a query that matches no listings, the agent stops before calling
 `suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
 
 **Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+This path never reaches the model. `search_listings` gives the same result
+every time, and the branch is a plain `if not results:` check. The same input
+produces the same output, so any failure is a bug in my code, not bad luck.
 
 ---
 
-## 3. Something about state
+## 3. The item search found is the item the later tools received
 
 <!-- YOU WRITE THIS ONE.
 
@@ -54,15 +57,19 @@ Given a query that matches no listings, the agent stops before calling
      compares session["selected_item"] against what actually reached
      suggest_outfit is the shape you're after. -->
 
-
+For a matching query, `session["selected_item"]["id"]` equals
+`session["search_results"][0]["id"]`, and the trace shows that same id going
+into both `suggest_outfit` and `create_fit_card` — in 5 of 5 tries.
 
 **Why this target:**
-
-
+Passing the item along is plain code with no model involved, so it should
+never vary. If the ids don't match, it's a state bug, such as overwriting
+`selected_item` or passing the wrong variable. That kind of bug would otherwise
+look like a bad outfit suggestion, which is why it's worth checking directly.
 
 ---
 
-## 4. Something about the fit card
+## 4. The fit card is an acceptable caption
 
 <!-- YOU WRITE THIS ONE.
 
@@ -75,15 +82,21 @@ Given a query that matches no listings, the agent stops before calling
      sentence? A card longer than a caption anyone would post? Any of those can
      be turned into a number. -->
 
-
+Each fit card is 2–4 sentences and contains the selected item's price written
+as `$<price>` (e.g. `$24`) and its `platform` name — in at least 4 of 5 tries.
+Across those 5 tries of the same query, no two cards have the same first sentence.
 
 **Why this target:**
-
-
+The prompt asks for all of this, but the model doesn't always follow it. In my
+own test it wrote the price as "thirty-eight bucks" and wrote as the seller
+until I tightened the prompt. 4 of 5 allows one slip like that. The
+first-sentence rule is strict on purpose: two runs with the cache off both
+opened with "Scored these vintage Levi's 501 jeans on Depop for just $38." I
+expect this part to be hard to meet, and I'd rather measure that than hide it.
 
 ---
 
-## 5. Your choice
+## 5. The search respects the price ceiling and size
 
 <!-- YOU WRITE THIS ONE TOO.
 
@@ -92,11 +105,16 @@ Given a query that matches no listings, the agent stops before calling
      search respects a price ceiling — anything, as long as it names a number
      or an observable outcome. -->
 
-
+For the query "graphic tee size S under $20", every listing in
+`session["search_results"]` costs $20 or less and has a size that contains "S"
+as a separate piece (so "S/M" counts, but "US 7" doesn't) — in 5 of 5 tries.
 
 **Why this target:**
-
-
+Both filters are plain code with no model, so they should never slip. The real
+risk is my query parser in `run_agent`. If it misses "$20" or "size S", that
+filter is skipped silently and the results look plausible but are wrong.
+Because the parser gives the same result every time, it will either pass all 5
+tries or fail all 5.
 
 ---
 
@@ -107,7 +125,7 @@ Given a query that matches no listings, the agent stops before calling
      revise it, and that earns credit. But never delete or edit the original
      line. Add the revision underneath it, like this:
 
-         ## 4. Something about the fit card
+         ## 4. The fit card is an acceptable caption
 
          The fit card is different every time.
 
