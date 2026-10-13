@@ -195,9 +195,15 @@ Scored these vintage Levi's 501 jeans on depop for just $38 and I'm obsessed. Th
 
 **Moment 3**
 
-- *What I asked for: I asked AI for the requirement of each milestones and how do I approach will be the best.*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked AI for the requirement of each milestones and how do I approach will be the best.
+- *What came back:* For Milestone 2 it triggered the three failures one at a time. Empty search and empty wardrobe were already handled. The bad key wasn't: run with a broken `GEMINI_API_KEY` and the cache off, `ModelUnavailable` escaped `run_agent`. `app.py`'s catch-all printed `ModelUnavailable: The model rejected your API key…` and exited with code 1, so the session was lost and the trace didn't show which step failed.
+- *What I changed:* I had a `try/except ModelUnavailable` added around steps 3–4 in `agent.py::run_agent`. It puts a message in `session["error"]` naming the found item, what broke and what to do, and adds a trace step `branch: model unavailable, stopping`. Re-run with the bad key, the trace now stops at `[3] suggest_outfit` and the run exits cleanly. I also had step 2 relabelled `search_listings (via MCP)`, because the trace had looked identical to a direct call.
+
+**Moment 4**
+
+- *What I asked for:* I asked Claude to score my before run (`results/run_2026-10-12_2057_before.md`) against the exact wording of each criterion in `criteria.md` and show the evidence for each PASS.
+- *What came back:* All five criteria were MET 5/5. It pointed out that this was suspicious for criterion 4: four of the five Levi's cards opened "Scored these vintage Levi's 501 jeans…" and passed only because a word or two differed. When it compared the first five words instead, every scenario had a repeated opening and 17 of 25 cards started with "Scored". It also flagged a judgment call I hadn't made: the data says `depop` and the cards say `Depop`, so the platform check had to ignore case.
+- *What I changed:* I kept the verdicts as MET, because that's what my criteria said, and wrote the repetition up as diagnosis 1. My improvement went after that: a new `create_fit_card` prompt with a random opening angle. Scored the same way, "Scored" openings went from 17 of 25 to 0 of 25. The after run also showed the AI's fix only moved the template, to "coffee run" and "snagged", which is in What's Still Broken.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
@@ -386,6 +392,7 @@ behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
 
+I registered `search_listings` in `mcp_server.py` with FastMCP, with the same three typed inputs as my Tool Inventory: `description: str`, `size: str | None`, `max_price: float | None`. They already matched, so nothing needed fixing. `python mcp_client.py` lists the tool with `description: string`, `size: string (optional)` and `max_price: number (optional)`. In `agent.py::run_agent` the direct `search_listings(...)` call became `call_tool("search_listings", {...})`; that's the only line of the loop that changed. Nothing behaved differently afterwards. I called both versions with the same arguments and compared them in Python: "vintage graphic tee" under $30 gave the same 10 listings in the same order, and an impossible query gave `[]` both ways, not `None`. The tool already returned plain JSON-friendly values (lists, dicts, strings, floats, `None`), so nothing changed going over MCP. Step 2 of the trace is labelled `search_listings (via MCP)` so you can see the call went over MCP.
 
 
 ---
@@ -397,26 +404,50 @@ full. -->
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** One prompt, in `tools.py::create_fit_card`. Each call to the model is independent, so it can't see the captions it wrote before, and telling it to "be varied" can't stop five separate calls from landing on the same opener. Now every call picks one opening angle at random from `_FIT_CARD_OPENINGS` (how the outfit feels, one detail of the item, the occasion, a short reaction, or the vibe/era). The prompt says "Open the first sentence with {that angle}" and adds: *Do not start the caption with "Scored", "Found", "Finally", "Just" or any other word about buying it.* Every other rule is unchanged: buyer voice, 2–4 sentences, item, `$price` and platform once each, no brand unless listed. Nothing else in the agent changed.
 
-**Which failure it was meant to fix:**
+**Which failure it was meant to fix:** Diagnosis 1, fit cards that all open with the same template ("Scored [item] on [platform] for just $[price]…"). I didn't touch diagnosis 2 (search relevance), so any change in the results comes from this one prompt.
 
 ### Run Log — After
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item the later tools received | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. The fit card is an acceptable caption | 4 of 5, and no repeated first sentence | PASS | PASS | PASS | PASS | PASS | MET (5/5, 5 distinct first sentences) |
+| 5. The search respects the price ceiling and size | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+Produced by `python run_eval.py --label after` (`run_eval.py::main`, caching off, temperature 0.9), same scenarios as the before run. Full output: `results/run_2026-10-12_2202_after.md`. I scored both runs with the same checks.
 
 **Did it help, and how do I know:**
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+Yes for the problem it targeted, and it didn't break anything else. All five criteria are still MET 5/5. Every card is still 3 sentences with the right `$price` and platform, criterion 3 still shows the same id in every step, and search returned the same two listings for criterion 5 in all 5 tries.
 
+My five criteria were already MET before the change, so the table alone can't show a difference. The difference shows up in the measure my diagnosis used: the first five words of each card, compared across the 5 tries of each scenario.
 
+| Scenario (5 tries each) | Different 5-word openings, before | After |
+|---|---|---|
+| Criterion 1: "vintage graphic tee under $30" | 4 of 5 | 5 of 5 |
+| Criterion 3: same query, state scenario | 3 of 5 | 5 of 5 |
+| Criterion 4: "vintage levi's 501 jeans" | 3 of 5 | 5 of 5 |
+| Criterion 5: "graphic tee size S under $20" | 4 of 5 | 4 of 5 |
+| Empty wardrobe (diagnostic) | 4 of 5 | 5 of 5 |
+| **Cards starting with "Scored"** | **17 of 25** (18 counting "Scoreeeed") | **0 of 25** |
+| **Exact repeated first sentence** | **1 pair** (empty wardrobe) | **none** |
+
+Criterion 4's own scenario, first sentence of each try. Before, four of the five opened "Scored these vintage…":
+
+```
+Before                                                                  After
+Honestly can't believe I scored these vintage Levi's 501 jeans ...      Obsessed is an understatement.
+scored these vintage 501s on depop for just $38 and I am never ...      Total effortless 90s street style.
+Scored these vintage Levi's 501 jeans on Depop for just $38 and ...     Running errands around the city in my new Vintage Levi's 501 Jeans from depop.
+Scored these vintage Levi's 501 jeans for just $38 on Depop and ...     Omg, obsession is an understatement.
+Scored these vintage Levi's 501 jeans on Depop for just $38 and ...     So broken-in and comfortable right out of the box.
+```
+
+**What it didn't fix, honestly:** the template moved instead of disappearing. The "occasion" angle almost always becomes a coffee run: 5 of the 25 cards mention one. "Coffee run uniform sorted with this…" opened a graphic-tee card *and* a butterfly-tee card, and tries 3 and 4 of criterion 5 both open "Coffee run this morning called for…". That's why criterion 5's scenario is still 4 of 5. "Scored" moved out of the opening but didn't go away: 14 of the 25 cards say "snag" or "snagged" later on, and three Levi's cards say they "fit like an absolute dream". So the openings vary now, but the model still reaches for the same handful of phrases once it has a fixed slot to fill.
 
 ---
 
@@ -426,6 +457,15 @@ full. -->
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
 
+No criterion is MISSED, before or after. That doesn't mean nothing is broken. These are the problems the runs showed that my criteria didn't catch:
+
+**1. Fit cards still repeat themselves, just in new places.** After the prompt change, no card opens with "Scored", but 5 of 25 mention a "coffee run", criterion 5's tries 3 and 4 both open "Coffee run this morning called for…", and 14 of 25 say "snag"/"snagged". *What I'd do:* show the model a few of the captions already written for the same item and tell it not to reuse their phrases. Or drop the "occasion" angle, which is the one that keeps turning into a coffee run. *Why I stopped:* the improvement was meant to be one change measured properly. A second prompt change would have made the after run impossible to attribute to either one.
+
+**2. Criterion 4 measures the wrong thing.** "No two cards share a first sentence" passed before *and* after, even when four openings differed by one word. The five-word comparison in The Improvement is what showed the actual difference. *What I'd do:* add a revision under criterion 4 in `criteria.md` (keeping the original) that compares the first five words, and re-score both runs with it. *Why I stopped:* I'd rather show the gap honestly here than change the criterion after seeing results.
+
+**3. Search returns items that aren't what was asked for.** "graphic tee size S under $20" also returns "Mesh Long-Sleeve Top — Black", because `tools.py::search_listings` scores keywords found in the description ("Great for layering under a graphic tee"). *What I'd do:* count a description match only when no title or style-tag match exists, or require every keyword to match somewhere. Then add a criterion for it, such as "every result's title or style tags contain the requested item type". *Why I stopped:* it's diagnosis 2, and I fixed diagnosis 1 first because it was the bigger problem in my own data. None of my five criteria measures relevance, so I couldn't have shown a fix working anyway.
+
+**4. The random opening angle can repeat.** With 5 angles and 5 tries, two tries usually get the same angle, which is probably why criterion 5's scenario still had a repeated opening (4 of 5 different). I can't confirm it, because the run doesn't record which angle each try got. *What I'd do:* cycle through the angles instead of picking at random. *Why I stopped:* same reason as 1, one change per run.
 
 
 <!-- ═════════════════════════════════════════════════════════════════════

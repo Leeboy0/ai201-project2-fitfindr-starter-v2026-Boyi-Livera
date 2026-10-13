@@ -20,6 +20,7 @@ That last line is what your loop branches on. "Returns a list" earns nothing —
 the description has to say what is *in* the list.
 """
 
+import random
 import re
 
 import config
@@ -226,6 +227,16 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
 
+# Where a fit card's first sentence starts. One is picked at random per call.
+_FIT_CARD_OPENINGS = (
+    "how the outfit feels to wear",
+    "one specific detail of the item (a color, the fabric, the fit, the wear)",
+    "the occasion or place you're wearing it to",
+    "a short reaction, like something you'd say out loud",
+    "the vibe or era the look is going for",
+)
+
+
 def create_fit_card(outfit: str, new_item: dict) -> str:
     """
     Write a short caption someone would actually post about the find.
@@ -266,6 +277,10 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
             "Run suggest_outfit first and pass its result in."
         )
 
+    # Each call is independent, so the model can't see its earlier captions and
+    # kept landing on the same opener ("Scored this ... for just $X"). Giving
+    # every call a different place to start is what makes the openings differ.
+    opening = random.choice(_FIT_CARD_OPENINGS)
     prompt = (
         "Write a caption for a social post by someone who just bought this "
         "thrift find and is showing it off. They are the buyer, not the seller.\n\n"
@@ -274,7 +289,9 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         "Rules: 2 to 4 sentences. Sound like a real person posting, not a "
         "product listing. Mention the item, its price and its platform exactly "
         "once each, writing the price as a dollar amount (e.g. $38). Be specific "
-        "about the vibe. Don't mention a brand unless one is listed above."
+        "about the vibe. Don't mention a brand unless one is listed above.\n\n"
+        f"Open the first sentence with {opening}. Do not start the caption with "
+        "\"Scored\", \"Found\", \"Finally\", \"Just\" or any other word about buying it."
     )
     system = "You write short, casual, authentic outfit captions."
     response = generate(prompt, system=system).strip()
