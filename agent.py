@@ -19,6 +19,7 @@ import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
 from generate import ModelUnavailable
+from mcp_client import call_tool
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -180,38 +181,53 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     steps += 1
     trace.check_iterations(steps)
     parsed = session["parsed"]
-    session["search_results"] = search_listings(
-        parsed["description"], parsed["size"], parsed["max_price"]
-    )
+    session["search_results"] = call_tool("search_listings", {
+        "description": parsed["description"],
+        "size": parsed["size"],
+        "max_price": parsed["max_price"],
+    })
 
     # The branch: nothing found → say what to change and stop.
     if not session["search_results"]:
         session["error"] = _no_results_message(session["parsed"])
-        trace.step("search_listings", inputs=str(parsed), returned=session["search_results"],
+        trace.step("search_listings (via MCP)", inputs=str(parsed), returned=session["search_results"],
                    note="branch: empty, stopping before suggest_outfit")
         return session
 
     session["selected_item"] = session["search_results"][0]
-    trace.step("search_listings", inputs=str(parsed), returned=session["search_results"],
+    trace.step("search_listings (via MCP)", inputs=str(parsed), returned=session["search_results"],
                note=f"branch: found, selected {session['selected_item']['id']}")
 
-    # Step 3: outfit, from what the session holds.
-    steps += 1
-    trace.check_iterations(steps)
-    item = session["selected_item"]
-    session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
-    trace.step("suggest_outfit",
-               inputs=f"new_item={item['id']}, "
-                      f"wardrobe_items={len(session['wardrobe'].get('items') or [])}",
-               returned=session["outfit_suggestion"])
+    # Steps 3 and 4 call the model. If it can't be reached, stop with a message
+    # instead of letting the exception escape and lose the session.
+    try:
+        # Step 3: outfit, from what the session holds.
+        steps += 1
+        trace.check_iterations(steps)
+        item = session["selected_item"]
+        session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
+        trace.step("suggest_outfit",
+                   inputs=f"new_item={item['id']}, "
+                          f"wardrobe_items={len(session['wardrobe'].get('items') or [])}",
+                   returned=session["outfit_suggestion"])
 
-    # Step 4: fit card, from what the session holds.
-    steps += 1
-    trace.check_iterations(steps)
-    item = session["selected_item"]
-    session["fit_card"] = create_fit_card(session["outfit_suggestion"], item)
-    trace.step("create_fit_card", inputs=f"new_item={item['id']}",
-               returned=session["fit_card"])
+        # Step 4: fit card, from what the session holds.
+        steps += 1
+        trace.check_iterations(steps)
+        item = session["selected_item"]
+        session["fit_card"] = create_fit_card(session["outfit_suggestion"], item)
+        trace.step("create_fit_card", inputs=f"new_item={item['id']}",
+                   returned=session["fit_card"])
+    except ModelUnavailable as exc:
+        failed = "suggest_outfit" if session["outfit_suggestion"] is None else "create_fit_card"
+        session["error"] = (
+            f"Found {session['selected_item']['title']}, but couldn't reach the model "
+            f"to write the {'outfit' if failed == 'suggest_outfit' else 'fit card'}. "
+            f"{exc} Then run the query again."
+        )
+        trace.step(failed, inputs=f"new_item={session['selected_item']['id']}",
+                   returned=None, note="branch: model unavailable, stopping")
+        return session
 
     return session
 

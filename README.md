@@ -193,6 +193,12 @@ Scored these vintage Levi's 501 jeans on depop for just $38 and I'm obsessed. Th
 - *What came back:* The loop worked, but the trace printed `in: dict with keys: new_item_id, wardrobe_items` instead of the id. `trace.py::_short` shortens any dict to its key names, so the trace couldn't prove what criterion 3 asks.
 - *What I changed:* The trace inputs are now passed as strings (`new_item=lst_006, wardrobe_items=10`), so the trace shows `lst_006` selected by search, then `lst_006` going into both `suggest_outfit` and `create_fit_card`.
 
+**Moment 3**
+
+- *What I asked for: I asked AI for the requirement of each milestones and how do I approach will be the best.*
+- *What came back:*
+- *What I changed:*
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
@@ -213,17 +219,82 @@ Scored these vintage Levi's 501 jeans on depop for just $38 and I'm obsessed. Th
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item the later tools received | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. The fit card is an acceptable caption | 4 of 5, and no repeated first sentence | PASS | PASS | PASS | PASS | PASS | MET (5/5, 5 distinct first sentences) |
+| 5. The search respects the price ceiling and size | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+Produced by `python run_eval.py --label before` (`run_eval.py::main`, caching off, temperature 0.9), which calls `agent.py::run_agent` for every try. Full output: `results/run_2026-10-12_2057_before.md`.
 
 **Real output from one try**, pasted as text, naming the file and function
 that produced it:
 
+**Criterion 1**: try 1 of "vintage graphic tee under $30". Loop: `agent.py::run_agent`; fit card: `tools.py::create_fit_card`.
+
+```
+- stopped early: no
+- selected_item: Graphic Tee — 2003 Tour Bootleg Style ($24.0, depop)
+- search_results: 10
+
+Fit card:
+Scored this 2003 tour bootleg style graphic tee on Depop for just $24 and I'm obsessed. Threw it on with baggy denim and combat boots for the ultimate effortless grunge fit. Honestly the best kind of find.
 ```
 
+**Criterion 2**: try 1 of "designer ballgown size XXS under $5". Branch: `agent.py::run_agent`; message: `agent.py::_no_results_message`.
+
+```
+- stopped early: yes — No listings matched "designer ballgown" in size XXS under $5. Try to raise your max price, or drop the size or try a neighbouring one, or use fewer or more common keywords (e.g. "dress" instead of "ballgown").
+- selected_item: (none)
+- search_results: 0
+
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
+```
+
+**Criterion 3**: try 1 of "vintage graphic tee under $30" (the state scenario). Trace written by `agent.py::run_agent` through `trace.py::step`. `search_results[0]` is `lst_006`, and the same id is selected and passed to both later tools.
+
+```
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey, Y2K Baby Tee — Butterfly Print … +7 more
+      →    branch: found, selected lst_006
+[3] suggest_outfit
+      in:  new_item=lst_006, wardrobe_items=10
+[4] create_fit_card
+      in:  new_item=lst_006
+```
+
+**Criterion 4**: "vintage levi's 501 jeans" (lst_001, $38, depop), from `tools.py::create_fit_card`. Try 1 in full, then the first sentence of all five tries:
+
+```
+Honestly can't believe I scored these vintage Levi's 501 jeans for only $38 on Depop. The medium wash is literal perfection and they fit like an absolute dream. Already planning to live in them with chunky sneakers and oversized crews all season long.
+
+Try 1: Honestly can't believe I scored these vintage Levi's 501 jeans for only $38 on Depop.
+Try 2: scored these vintage 501s on depop for just $38 and I am never taking them off.
+Try 3: Scored these vintage Levi's 501 jeans on Depop for just $38 and I am obsessed.
+Try 4: Scored these vintage Levi's 501 jeans for just $38 on Depop and I am officially obsessed.
+Try 5: Scored these vintage Levi's 501 jeans on Depop for just $38 and I am never taking them off.
+```
+
+Every card is 3 sentences and contains `$38` and the platform. I matched the platform case-insensitively, because the data says `depop` and the cards say `Depop`.
+
+**Criterion 5**: try 1 of "graphic tee size S under $20". Search: `tools.py::search_listings`, called over MCP from `agent.py::run_agent`. The run log only records titles, so I printed each result's price and size with a direct call; search doesn't use the model, so these are the same two items in all five tries.
+
+```
+[2] search_listings (via MCP)
+      in:  {'description': 'graphic tee', 'size': 'S', 'max_price': 20.0}
+      out: 2 items: Y2K Baby Tee — Butterfly Print, Mesh Long-Sleeve Top — Black
+      →    branch: found, selected lst_002
+
+$ python -c "from tools import search_listings; ..."
+lst_002 Y2K Baby Tee — Butterfly Print 18.0 'S/M'
+lst_017 Mesh Long-Sleeve Top — Black 15.0 'S/M'
 ```
 
 ---
@@ -248,15 +319,23 @@ that produced it:
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | A matching query completes all three tools | 4 of 5 | MET (5/5) | All 5 tries of "vintage graphic tee under $30" ended with `error` None and a non-empty `fit_card`. No try crashed or stopped early. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | MET (5/5) | All 5 traces end at `[2] search_listings (via MCP)` with `branch: empty`, there is no `[3] suggest_outfit`, and `error` names three things to change (price, size, keywords). |
+| 3 | The item search found is the item the later tools received | 5 of 5 | MET (5/5) | In all 5 traces the first search result is `lst_006`, step 2 says `selected lst_006`, and steps 3 and 4 both show `new_item=lst_006`. |
+| 4 | The fit card is an acceptable caption | 4 of 5, and no repeated first sentence | MET (5/5) | Every card was 3 sentences and contained `$38` and the platform. I matched "depop" case-insensitively, because the data says `depop` and the cards say `Depop`. All 5 first sentences differ, but only by a few words (see below). |
+| 5 | The search respects the price ceiling and size | 5 of 5 | MET (5/5) | Every try returned the same 2 listings: `lst_002` ($18, `S/M`) and `lst_017` ($15, `S/M`). Both are ≤ $20 and have `S` as a whole size token. |
 
 **Diagnoses**
 
+No criterion missed, so there is no miss to diagnose. Two things in the output are still wrong, though, and both point at a criterion that measured less than I meant it to.
 
+**1. The fit cards all open with the same template.** *Place:* the model's output, driven by the prompt in `tools.py::create_fit_card`. *Mechanism:* the prompt fixes what the caption contains: a buyer showing off a find, mentioning the item, price and platform exactly once each, price written as a dollar amount. The model fills that in with one sentence shape: "Scored [item] on [platform] for just $[price] and I'm obsessed." Four of the five Levi's cards open like that. They pass my criterion only because a word or two differs ("I am obsessed" vs "I am never taking them off"). In the empty-wardrobe diagnostic run, tries 1 and 5 had exactly the same first sentence: "Scored this cropped Wrangler jacket on Poshmark for $42 and honestly haven't taken it off since it arrived." That would have been a FAIL if the scenario had been scored against criterion 4. Temperature 0.9 changes the wording but not the structure, because the structure is set by the prompt. The tool works; my "no identical first sentence" check is too loose to catch the repetition I wrote criterion 4 to measure.
+
+**2. "graphic tee" returns a top that isn't a graphic tee.** *Place:* the tool, `tools.py::search_listings`. *Mechanism:* the scoring counts a keyword found in a listing's description, not just its title or style tags. `lst_017` "Mesh Long-Sleeve Top — Black" says "Great for layering under a graphic tee" in its description, so it scores for both "graphic" and "tee". That puts it in the results for criterion 5's query. It passes criterion 5 because that criterion checks only price and size, which were both correct. Whether a result is the kind of item the user asked for isn't measured by any of my five criteria.
+
+**Pattern:** both problems are ones my criteria don't measure. Every hard rule (branch, state, filters, price, platform) held 5 of 5, because each is plain code or an explicit prompt instruction. The quality problems slipped through the gaps between them.
+
+**Were my targets too low?** Partly, yes. Criteria 2, 3 and 5 test code with no model in it, so 5 of 5 was always the expected result. Those targets are right, but they couldn't tell me much beyond "the code is correct". Criterion 1 at 4 of 5 left room for a model failure that didn't happen. The one I'd tighten is **criterion 4**. Its "no two cards share a first sentence" rule measured the wrong thing: an opening that changes by one word still counts as different. I re-scored the same before run comparing the first five words of each card instead. Every scenario that produced fit cards had a repeated opening. Criterion 4's own Levi's scenario had only 3 different openings out of 5 ("scored these vintage levi's 501" three times), and 17 of the 25 cards start with the word "Scored". Under a check that measures what I meant, criterion 4 would have been MISSED.
 
 ---
 
@@ -275,13 +354,31 @@ that produced it:
 **Happy path**
 
 ```
-
+[1] parse_query
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey, Y2K Baby Tee — Butterfly Print … +7 more
+      →    branch: found, selected lst_006
+[3] suggest_outfit
+      in:  new_item=lst_006, wardrobe_items=10
+      out: **Outfit 1 (Grunge Streetwear)** * New Item: Graphic Tee — 2003 Tour Bootleg Style * Owned Bottoms: Baggy stra…
+[4] create_fit_card
+      in:  new_item=lst_006
+      out: Scored this 2003 tour bootleg tee on depop for just $24 and I'm honestly obsessed with the fade on it. Paired …
 ```
 
 **Empty search**
 
 ```
-
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
 ```
 
 **On the MCP move:** <!-- what changed in your code, and whether anything
